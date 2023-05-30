@@ -23,6 +23,7 @@
     "path": "^0.12.7"
   },
   "devDependencies": {
+    "@types/cheerio": "^0.22.31",
     "@types/node": "^20.2.5",
     "typescript": "^5.0.4"
   }

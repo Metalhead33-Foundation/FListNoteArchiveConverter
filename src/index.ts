@@ -99,27 +99,23 @@ function formatDate(date: Date): string {
   return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
 }
 
-function processHTMLFile(rpgPath: string): void {
-  const stats = fs.statSync(rpgPath);
-  const fileDate = stats.mtime;
-  const htmlfile = "" + fs.readFileSync(require.resolve(rpgPath)) + "";
-  const $ = cheerio.load(htmlfile, { xmlMode: false });
+function isLastElementDuplicate(posts: Post[], element: Post): boolean {
+  if (posts.length > 0) {
+    const lastPost = posts[posts.length - 1];
+    const isDuplicate =
+      lastPost.longerText === element.longerText ||
+      (element.relativeDate != null && lastPost.longerText.substring(0, 32) === element.relativeDate.substring(0, 32)) ||
+      lastPost.longerText.substring(lastPost.longerText.length - 1, lastPost.longerText.length - 32) === element.longerText.substring(element.longerText.length - 1, element.longerText.length - 32);
 
-  const posts: Post[] = [];
-  function isLastElementDuplicate(element: Post): boolean {
-    if (posts.length > 0) {
-      const lastPost = posts[posts.length - 1];
-      const isDuplicate =
-        lastPost.longerText === element.longerText ||
-        (element.relativeDate != null && lastPost.longerText.substring(0, 32) === element.relativeDate.substring(0, 32)) ||
-        lastPost.longerText.substring(lastPost.longerText.length - 1, lastPost.longerText.length - 32) === element.longerText.substring(element.longerText.length - 1, element.longerText.length - 32);
-
-      return isDuplicate;
-    }
-    return false;
+    return isDuplicate;
   }
+  return false;
+}
 
-  $(".FormattedBlock").each(function (idx, elem) {
+function extractPostsFromHTML($: cheerio.Root): Post[] {
+  const posts: Post[] = [];
+// cheerio.Elem
+  $(".FormattedBlock").each(function (idx :number, elem : cheerio.Element) {
     const inputString = $(elem).text();
     const colonIndex = inputString.indexOf(":");
     const newElement: Post = {
@@ -127,21 +123,16 @@ function processHTMLFile(rpgPath: string): void {
       longerText: inputString.substring(colonIndex + 1).trim(),
     };
 
-    if (isLastElementDuplicate(newElement)) {
-      //console.log("Duplicate alert!")
-    } else {
+    if (!isLastElementDuplicate(posts, newElement)) {
       posts.push(newElement);
     }
   });
 
-  const finalOutput: FinalOutput = {
-    path: rpgPath,
-    stats: stats,
-    epoch: fileDate,
-    posts: posts,
-  };
+  return posts;
+}
 
-  finalOutput.posts.forEach((obj) => {
+function processExtractedPosts(posts: Post[], finalOutput: FinalOutput): void {
+  posts.forEach((obj) => {
     if (obj.relativeDate != null) {
       const { sender, distance } = extractSenderAndDistance(obj.relativeDate);
       const decrementedDate = decrementDate(finalOutput.epoch, distance);
@@ -151,19 +142,23 @@ function processHTMLFile(rpgPath: string): void {
     }
   });
 
-  finalOutput.posts.forEach(function (currentValue, index) {
+  posts.forEach(function (currentValue, index) {
     if (currentValue.date != null) {
       currentValue.date.setSeconds(currentValue.date.getSeconds() + index);
     }
   });
+}
 
+function writeJSONFile(finalOutput: FinalOutput): void {
   const json = JSON.stringify(finalOutput);
-  const jsonFileName = path.basename(rpgPath, path.extname(rpgPath)) + '.json';
-  const jsonFilePath = path.join(path.dirname(rpgPath), jsonFileName);
+  const jsonFileName = path.basename(finalOutput.path, path.extname(finalOutput.path)) + '.json';
+  const jsonFilePath = path.join(path.dirname(finalOutput.path), jsonFileName);
   fs.writeFileSync(jsonFilePath, json);
+}
 
-  const textFileName = path.basename(rpgPath, path.extname(rpgPath)) + '.txt';
-  const textFilePath = path.join(path.dirname(rpgPath), textFileName);
+function writeTextFile(finalOutput: FinalOutput): void {
+  const textFileName = path.basename(finalOutput.path, path.extname(finalOutput.path)) + '.txt';
+  const textFilePath = path.join(path.dirname(finalOutput.path), textFileName);
   fs.writeFileSync(
     textFilePath,
     finalOutput.posts
@@ -175,6 +170,26 @@ function processHTMLFile(rpgPath: string): void {
       })
       .join("\n")
   );
+}
+
+function processHTMLFile(rpgPath: string): void {
+  const stats = fs.statSync(rpgPath);
+  const fileDate = stats.mtime;
+  const htmlfile = "" + fs.readFileSync(require.resolve(rpgPath)) + "";
+  const $ = cheerio.load(htmlfile, { xmlMode: false });
+
+  const posts = extractPostsFromHTML($);
+
+  const finalOutput: FinalOutput = {
+    path: rpgPath,
+    stats: stats,
+    epoch: fileDate,
+    posts: posts,
+  };
+
+  processExtractedPosts(posts, finalOutput);
+  writeJSONFile(finalOutput);
+  writeTextFile(finalOutput);
 }
 
 const rpgPath = process.argv[2];
